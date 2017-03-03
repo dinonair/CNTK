@@ -15,7 +15,7 @@ namespace CNTK
     {
         FunctionPtr LoadLegacyModel(const std::wstring& modelFile, const DeviceDescriptor& computeDevice);
 
-        inline bool IsLegacyModel(std::fstream& stream)
+        inline bool IsLegacyModel(std::istream& stream)
         {
             static const char legacyMarker[] = { 0x42, 0x00, 0x43, 0x00, 0x4e, 0x00, 0x00, 0x00 }; // L"BCN"
             static const auto size = sizeof(legacyMarker);
