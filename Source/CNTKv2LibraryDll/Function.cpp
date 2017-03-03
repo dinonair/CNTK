@@ -363,6 +363,30 @@ namespace CNTK
         }
     }
 
+    /*static*/ FunctionPtr Function::LoadModel(char *modelBuffer, size_t modelBufferLength, const DeviceDescriptor& computeDevice)
+    {
+        if ((modelBuffer == nullptr) || (modelBufferLength <= 0))
+            InvalidArgument("The model buffer should not be null and its length should be greater than 0");
+
+        struct modelStreamBuffer : std::streambuf
+        {
+            modelStreamBuffer(char* start, size_t size) {
+                this->setg(start, start, start + size);
+            }
+        };
+        modelStreamBuffer buf(modelBuffer, modelBufferLength);
+        std::istream modelStream(&buf);
+
+        if (Internal::IsLegacyModel(modelStream))
+            InvalidArgument("Read a legacy model from byte array is not supported.");
+        else
+        {
+            Dictionary model;
+            modelStream >> model;
+            return Function::Deserialize(model, computeDevice);
+        }
+    }
+
     void Function::RestoreModel(const std::wstring& modelFilePath)
     {
         auto stream = GetFstream(modelFilePath, true);
