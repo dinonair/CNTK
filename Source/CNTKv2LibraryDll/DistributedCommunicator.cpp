@@ -12,6 +12,7 @@
 #include "CUDAPageLockedMemAllocator.h"
 #include "MatrixQuantizerImpl.h"
 #include "GPUDataTransferer.h"
+#include "Utils.h"
 #include <numeric>
 
 using namespace Microsoft::MSR::CNTK;
@@ -87,6 +88,14 @@ namespace CNTK
     void MPICommunicatorImpl::Initialize(const std::vector<NDArrayViewPtr>& values)
     {
         assert(CPUDEVICE < 0); // just in case somebody decides to change CPUDEVICE macro.
+        // Assume all values on the same device, initialize NCCL.
+        // If NCCL is supported, skip copying memory from GPU to CPU
+        m_nccl.reset(new NcclComm(AsCNTKImplDeviceId(values[0]->Device()), m_mpi));
+        if (m_nccl->IsSupported())
+        {
+            return;
+        }
+
         DeviceDescriptor lastGpuDevice = DeviceDescriptor::CPUDevice();
         m_gpuDataTransferers.resize(values.size());
         m_intermediateCPUBuffers.resize(values.size());
@@ -307,7 +316,7 @@ namespace CNTK
         for (auto i = 0; i < numValues; ++i)
         {
             auto view = inputValues[i];
-            if (view->Device() != DeviceDescriptor::CPUDevice())
+            if (!m_nccl->IsSupported() && view->Device() != DeviceDescriptor::CPUDevice())
             {
                 auto& transferer = m_gpuDataTransferers[i];
                 auto& buffer = m_intermediateCPUBuffers[i];
@@ -320,7 +329,7 @@ namespace CNTK
         {
             auto inputValue = inputValues[i];
 
-            if (inputValue->Device() != DeviceDescriptor::CPUDevice())
+            if (!m_nccl->IsSupported() && inputValue->Device() != DeviceDescriptor::CPUDevice())
             {
                 // TODO: actually, we can start reducing all cpu values first, and then wait for the gpu->cpu transfer to finish.
                 m_gpuDataTransferers[i]->WaitForCopyGPUToCPUAsync();
@@ -334,6 +343,17 @@ namespace CNTK
             assert(numElements == outputValue->Shape().TotalSize());
             assert(dataType == outputValue->GetDataType());
             assert(inputValue->Device() == outputValue->Device());
+
+            if (m_nccl->IsSupported())
+            {
+                if (dataType == DataType::Float)
+                    m_nccl->AllReduce(static_cast<float*>(GetDataBuffer(inputValue)), static_cast<float*>(GetDataBuffer(outputValue)), numElements);
+                else if (dataType == DataType::Double)
+                    m_nccl->AllReduce(static_cast<double*>(GetDataBuffer(inputValue)), static_cast<double*>(GetDataBuffer(outputValue)), numElements);
+                else
+                    LogicError("DistributedCommunicator: Unknown DataType.");
+                continue;
+            }
 
             void* inputData = (inputValue->Device() != DeviceDescriptor::CPUDevice()) ? m_intermediateCPUBuffers[i].data.get() : GetDataBuffer(inputValue);
             void* outputData = (inputValue->Device() != DeviceDescriptor::CPUDevice()) ? m_intermediateCPUBuffers[i].data.get() : GetDataBuffer(outputValue);
@@ -356,30 +376,37 @@ namespace CNTK
                 LogicError("MPICommunicator: Unknown DataType.");
         }
 
-        // wait for async all reduce to complete. As soon as one of the requests is finished,
-        // check if corresponding value is gpu bound and, if it is the case, initiate a cpu-to-gpu transfer.
-        size_t numAllReduceRequestsCompleted = 0;
-        while (numAllReduceRequestsCompleted < numValues)
+        if (m_nccl->IsSupported())
         {
-            int idx = MPI_UNDEFINED;
-            m_mpi->WaitAny(allReduceRequests.data(), (int)allReduceRequests.size(), &idx);
-            if (idx == MPI_UNDEFINED)
+            m_nccl->Sync();
+        }
+        else
+        {
+            // wait for async all reduce to complete. As soon as one of the requests is finished,
+            // check if corresponding value is gpu bound and, if it is the case, initiate a cpu-to-gpu transfer.
+            size_t numAllReduceRequestsCompleted = 0;
+            while (numAllReduceRequestsCompleted < numValues)
             {
-                break;
-            }
+                int idx = MPI_UNDEFINED;
+                m_mpi->WaitAny(allReduceRequests.data(), (int)allReduceRequests.size(), &idx);
+                if (idx == MPI_UNDEFINED)
+                {
+                    break;
+                }
 
-            numAllReduceRequestsCompleted++;
+                numAllReduceRequestsCompleted++;
 
-            assert(idx < inputValues.size());
-            auto value = inputValues[idx];
+                assert(idx < inputValues.size());
+                auto value = inputValues[idx];
 
-            if (value->Device() != DeviceDescriptor::CPUDevice())
-            {
-                auto view = outputValues[idx];
-                auto size = GetBufferSize(view);
-                auto& transferer = m_gpuDataTransferers[idx];
-                auto& buffer = m_intermediateCPUBuffers[idx];
-                transferer->CopyCPUToGPUAsync(buffer.data.get(), size, GetDataBuffer(view));
+                if (value->Device() != DeviceDescriptor::CPUDevice())
+                {
+                    auto view = outputValues[idx];
+                    auto size = GetBufferSize(view);
+                    auto& transferer = m_gpuDataTransferers[idx];
+                    auto& buffer = m_intermediateCPUBuffers[idx];
+                    transferer->CopyCPUToGPUAsync(buffer.data.get(), size, GetDataBuffer(view));
+                }
             }
         }
 
