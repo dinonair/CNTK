@@ -387,8 +387,7 @@ namespace CNTK
                 computationNodePtr->Value() = valueMatrix->AsReference();
             else // Constant: if initialized data lives on wrong device, make a copy to the right one (copy is OK since it's constant)
             {
-                Matrix<ElementType> clonedMatrix(valueMatrix->GetNumRows(), valueMatrix->GetNumCols(), network->GetDeviceId(), valueMatrix->GetMatrixType(), valueMatrix->GetFormat());
-                clonedMatrix.AssignValuesOf(*valueMatrix);
+                Matrix<ElementType> clonedMatrix(*valueMatrix, network->GetDeviceId());
                 computationNodePtr->Value() = std::move(clonedMatrix);
             }
         }
