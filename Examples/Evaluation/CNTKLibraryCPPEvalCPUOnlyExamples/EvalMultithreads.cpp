@@ -7,7 +7,6 @@
 #include <functional>
 #include <thread>
 #include <iostream>
-#include <fstream>
 #include "CNTKLibrary.h"
 
 using namespace CNTK;
@@ -136,15 +135,9 @@ void MultiThreadsEvaluationWithClone(const DeviceDescriptor& device, const int t
 void MultiThreadsEvaluationWithLoadModel(const DeviceDescriptor& device, const int threadCount)
 {
     // The model file will be trained and copied to the current runtime directory first.
-    // auto modelFuncPtr = CNTK::Function::LoadModel(L"01_OneHidden", device);
-    std::ifstream modelFileStream;
-    modelFileStream.open("resnet20.dnn", std::ios::in | std::ios::binary);
-    modelFileStream.seekg(0, std::ios::end);
-    size_t length = modelFileStream.tellg();
-    modelFileStream.seekg(0, std::ios::beg);
-    char* modelBuffer = new char[length];
-    modelFileStream.read(modelBuffer, length);
-    auto modelFuncPtr = CNTK::Function::LoadModel(modelBuffer, length);
+    auto modelFuncPtr = CNTK::Function::LoadModel(L"01_OneHidden", device);
+
+
     OutputFunctionInfo(modelFuncPtr);
     fprintf(stderr, "MultiThreadsEvaluationWithLoadModel on device=%d\n", device.Id());
 
