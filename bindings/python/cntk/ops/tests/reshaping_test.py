@@ -241,6 +241,12 @@ SLICE_OVERLOAD_TEST_CASES_STATIC = [
         # Selecting from both rows columns 1 and 2
         (0, [1, 2]),
         [[2, 3]]),
+
+    # slicing with two lists of indices -> error
+    ([[1, 2, 3], [-4, 5, 6]],
+        # Selecting from both rows columns 1 and 2
+        ([0, 1], [1, 2]),
+        ValueError),
 ]
 
 
@@ -265,9 +271,6 @@ def test_op_slice_overload(input_data, slices, expected_result,
 
     value = AA(input_data, dtype=dtype)
 
-    expected_forward = [AA([expected_result], dtype=dtype)]
-    expected_backward = [[grad_slice(input_data, slices)]]
-
     a = I(shape=value.shape,
           dtype=sanitize_dtype_cntk(dtype),
           needs_gradient=True,
@@ -275,16 +278,22 @@ def test_op_slice_overload(input_data, slices, expected_result,
 
     f = a+0
 
-    # create batch
-    value.shape = (1, 1) + value.shape
+    if isinstance(expected_result, ValueError):
+        with pytest.raises(ValueError):
+            input_op = f[slices]
+    else:
+        expected_forward = [AA([expected_result], dtype=dtype)]
+        expected_backward = [[grad_slice(input_data, slices)]]
 
-    input_op = f[slices]
+        # create batch
+        value.shape = (1, 1) + value.shape
 
-    forward_input = {a: value}
-    expected_backward = {a: expected_backward}
-    unittest_helper(input_op,
-                    forward_input, expected_forward, expected_backward,
-                    device_id=device_id, precision=precision)
+
+        forward_input = {a: value}
+        expected_backward = {a: expected_backward}
+        unittest_helper(input_op,
+                        forward_input, expected_forward, expected_backward,
+                        device_id=device_id, precision=precision)
 
 
 SLICE_TEST_CASES_DYNAMIC = [

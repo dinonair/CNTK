@@ -91,10 +91,12 @@ class TensorOpsMixin(object):
         from . import ops
 
         # int or slice: normalize into a tuple of int or tuple of slice
-        if not isinstance(arg, tuple): 
+        if not isinstance(arg, tuple):
             arg = (arg,)
         r = self
         axis0 = 0
+
+        advanced_indexing_used = False
 
         for axis, s in enumerate(arg):
             if s is Ellipsis: # ellipsis means index relative to end after this point
@@ -118,6 +120,12 @@ class TensorOpsMixin(object):
                 # different from NumPy's advanced indexing, since we just go
                 # axis by axis from left to right and don't do any
                 # broadcasting.
+
+                if advanced_indexing_used:
+                    raise ValueError('only one axis is allowed to use '
+                                     'multiple indices')
+
+                advanced_indexing_used = True
 
                 slice_accum = []
                 for idx in s:
