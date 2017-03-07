@@ -374,13 +374,14 @@ namespace CNTK
                 this->setg(start, start, start + size);
             }
         };
-        modelStreamBuffer buf(modelBuffer, modelBufferLength);
-        std::istream modelStream(&buf);
 
-        if (Internal::IsLegacyModel(modelStream))
+        if (Internal::IsLegacyModel(modelBuffer, modelBufferLength))
             InvalidArgument("Read a legacy model from byte array is not supported.");
         else
         {
+            modelStreamBuffer buf(modelBuffer, modelBufferLength);
+            std::istream modelStream(&buf);
+
             Dictionary model;
             modelStream >> model;
             return Function::Deserialize(model, computeDevice);
